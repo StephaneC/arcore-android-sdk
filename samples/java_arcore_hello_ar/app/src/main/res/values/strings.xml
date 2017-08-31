@@ -16,4 +16,8 @@
 -->
 <resources>
     <string name="app_name">HelloAR Java</string>
+  <string name="pick_object">Choose an object</string>
+  <string name="photo_error">Error on saving picture</string>
+  <string name="photo_success">Picture saved</string>
+  <string name="too_much_element">Too much element on surface</string>
 </resources>

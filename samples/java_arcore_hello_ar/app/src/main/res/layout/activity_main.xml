@@ -17,6 +17,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+                android:id="@+id/main"
     tools:context="com.google.ar.core.examples.java.helloar.HelloArActivity">
 
     <android.opengl.GLSurfaceView
@@ -24,5 +25,16 @@
         android:layout_width="fill_parent"
         android:layout_height="fill_parent"
         android:layout_gravity="top" />
+
+    <Button android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:id="@+id/switch_obj"
+            android:src="@android:drawable/ic_menu_slideshow"
+            android:text="andy" android:layout_alignParentBottom="true"
+            android:layout_alignParentStart="true"/>
+
+    <ImageButton android:layout_width="wrap_content" android:layout_height="wrap_content"
+                 android:id="@+id/photo"
+                 android:src="@android:drawable/ic_menu_camera"
+                 android:layout_alignParentBottom="true" android:layout_alignParentEnd="true"/>
 
 </RelativeLayout>

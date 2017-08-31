@@ -14,32 +14,33 @@
  */
 package com.google.ar.core.examples.java.helloar;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 
+import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
+
 /**
  * Helper to ask camera permission.
  */
-public class CameraPermissionHelper {
-  private static final String CAMERA_PERMISSION = Manifest.permission.CAMERA;
-  public static final int CAMERA_PERMISSION_CODE = 0;
+public class WriteImgPermissionHelper {
+  private static final String WRITE_EXTERNAL_STORAGE_PERMISSION = WRITE_EXTERNAL_STORAGE;
+  private static final int WRITE_EXTERNAL_STORAGE_PERMISSION_CODE = 10;
 
   /**
    * Check to see we have the necessary permissions for this app.
    */
-  public static boolean hasCameraPermission(Activity activity) {
-    return ContextCompat.checkSelfPermission(activity, CAMERA_PERMISSION) ==
+  public static boolean hasWritePermission(Activity activity) {
+    return ContextCompat.checkSelfPermission(activity, WRITE_EXTERNAL_STORAGE) ==
             PackageManager.PERMISSION_GRANTED;
   }
 
   /**
    * Check to see we have the necessary permissions for this app, and ask for them if we don't.
    */
-  public static void requestCameraPermission(Activity activity) {
-    ActivityCompat.requestPermissions(activity, new String[]{CAMERA_PERMISSION},
-            CAMERA_PERMISSION_CODE);
+  public static void requestWriteStoragePermission(Activity activity) {
+    ActivityCompat.requestPermissions(activity, new String[]{WRITE_EXTERNAL_STORAGE},
+                                      WRITE_EXTERNAL_STORAGE_PERMISSION_CODE);
   }
 }

@@ -25,14 +25,18 @@ import com.google.ar.core.PlaneHitResult;
 import com.google.ar.core.Session;
 import com.google.ar.core.examples.java.helloar.rendering.BackgroundRenderer;
 import com.google.ar.core.examples.java.helloar.rendering.ObjectRenderer;
-import com.google.ar.core.examples.java.helloar.rendering.ObjectRenderer.BlendMode;
 import com.google.ar.core.examples.java.helloar.rendering.PlaneAttachment;
 import com.google.ar.core.examples.java.helloar.rendering.PlaneRenderer;
 import com.google.ar.core.examples.java.helloar.rendering.PointCloudRenderer;
 
+import android.app.DialogFragment;
+import android.graphics.Bitmap;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -40,11 +44,16 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.nio.IntBuffer;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import javax.microedition.khronos.egl.EGLConfig;
@@ -67,17 +76,27 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
     private GestureDetector mGestureDetector;
     private Snackbar mLoadingMessageSnackbar = null;
 
-    private ObjectRenderer mVirtualObject = new ObjectRenderer();
-    private ObjectRenderer mVirtualObjectShadow = new ObjectRenderer();
+    private ObjectRenderer[] mVirtualObjects;
+    //private ObjectRenderer[] mVirtualObjectShadow = new ObjectRenderer[]();
     private PlaneRenderer mPlaneRenderer = new PlaneRenderer();
     private PointCloudRenderer mPointCloud = new PointCloudRenderer();
+
 
     // Temporary matrix allocated here to reduce number of allocations for each frame.
     private final float[] mAnchorMatrix = new float[16];
 
     // Tap handling and UI.
     private ArrayBlockingQueue<MotionEvent> mQueuedSingleTaps = new ArrayBlockingQueue<>(16);
-    private ArrayList<PlaneAttachment> mTouches = new ArrayList<>();
+    private Map<PlaneAttachment, Integer> mTouches = new HashMap<>();
+
+    //to save img
+    Button switchBtn;
+    private String objName = "andy";//default value
+    String[] objects;
+
+    private boolean saveFrame = false;
+
+    private int whichObj;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -86,6 +105,9 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
         mSurfaceView = (GLSurfaceView) findViewById(R.id.surfaceview);
 
         mSession = new Session(/*context=*/this);
+
+        objects = this.getResources().getStringArray(R.array.objects_array);
+        mVirtualObjects = new ObjectRenderer[objects.length];
 
         // Create default config, check is supported, create session from that config.
         mDefaultConfig = Config.createDefaultConfig();
@@ -122,6 +144,28 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
         mSurfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 0); // Alpha used for plane blending.
         mSurfaceView.setRenderer(this);
         mSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+
+        findViewById(R.id.photo).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(final View v) {
+                if (WriteImgPermissionHelper.hasWritePermission(HelloArActivity.this)) {
+                    //take a picture
+                    saveFrame = true;
+                    mSurfaceView.requestRender();
+                    //have to wait to draw and doing img save in onDraw
+                } else {
+                    WriteImgPermissionHelper.requestWriteStoragePermission(HelloArActivity.this);
+                }
+            }
+        });
+
+        switchBtn = (Button)findViewById(R.id.switch_obj);
+        switchBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(final View v) {
+                showDialog();
+            }
+        });
     }
 
     @Override
@@ -152,10 +196,16 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
-        if (!CameraPermissionHelper.hasCameraPermission(this)) {
+        if (requestCode == CameraPermissionHelper.CAMERA_PERMISSION_CODE
+                    && !CameraPermissionHelper.hasCameraPermission(this)) {
             Toast.makeText(this,
                 "Camera permission is needed to run this application", Toast.LENGTH_LONG).show();
             finish();
+        } else if(requestCode == CameraPermissionHelper.CAMERA_PERMISSION_CODE
+          && !WriteImgPermissionHelper.hasWritePermission(this)){
+            Toast.makeText(this,
+                           "Write storage is needed to take pictures", Toast.LENGTH_LONG).show();
+
         }
     }
 
@@ -190,13 +240,16 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
 
         // Prepare the other rendering objects.
         try {
-            mVirtualObject.createOnGlThread(/*context=*/this, "andy.obj", "andy.png");
-            mVirtualObject.setMaterialProperties(0.0f, 3.5f, 1.0f, 6.0f);
+            for(int i=0; i<objects.length; i++) {
+                mVirtualObjects[i] = new ObjectRenderer();
+                mVirtualObjects[i].createOnGlThread(/*context=*/this, objects[i] + ".obj", objects[i] + ".png");
+                mVirtualObjects[i].setMaterialProperties(0.0f, 3.5f, 1.0f, 6.0f);
 
-            mVirtualObjectShadow.createOnGlThread(/*context=*/this,
-                "andy_shadow.obj", "andy_shadow.png");
-            mVirtualObjectShadow.setBlendMode(BlendMode.Shadow);
-            mVirtualObjectShadow.setMaterialProperties(1.0f, 0.0f, 0.0f, 1.0f);
+                /** NO Shadow mVirtualObjectShadow.createOnGlThread(this,
+                 "andy_shadow.obj", "andy_shadow.png");*/
+                //mVirtualObjectShadow.setBlendMode(BlendMode.Shadow);
+                //mVirtualObjectShadow.setMaterialProperties(1.0f, 0.0f, 0.0f, 1.0f);
+            }
         } catch (IOException e) {
             Log.e(TAG, "Failed to read obj file");
         }
@@ -237,15 +290,16 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
                         // Cap the number of objects created. This avoids overloading both the
                         // rendering system and ARCore.
                         if (mTouches.size() >= 16) {
-                            mSession.removeAnchors(Arrays.asList(mTouches.get(0).getAnchor()));
-                            mTouches.remove(0);
+                            //FIXME mSession.removeAnchors(Arrays.asList(mTouches.get(0).getAnchor()));
+                            //mTouches.remove(0);
+                            Toast.makeText(this, this.getString(R.string.too_much_element), Toast.LENGTH_LONG).show();
+                        } else {
+                            // Adding an Anchor tells ARCore that it should track this position in
+                            // space. This anchor will be used in PlaneAttachment to place the 3d model
+                            // in the correct position relative both to the world and to the plane.
+                            mTouches.put(new PlaneAttachment(((PlaneHitResult) hit).getPlane(), mSession
+                              .addAnchor(hit.getHitPose())), whichObj);
                         }
-                        // Adding an Anchor tells ARCore that it should track this position in
-                        // space. This anchor will be used in PlaneAttachment to place the 3d model
-                        // in the correct position relative both to the world and to the plane.
-                        mTouches.add(new PlaneAttachment(
-                            ((PlaneHitResult) hit).getPlane(),
-                            mSession.addAnchor(hit.getHitPose())));
 
                         // Hits are sorted by depth. Consider only closest hit on a plane.
                         break;
@@ -292,7 +346,25 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
 
             // Visualize anchors created by touch.
             float scaleFactor = 1.0f;
-            for (PlaneAttachment planeAttachment : mTouches) {
+            Iterator it = mTouches.entrySet().iterator();
+            Map.Entry<PlaneAttachment, Integer> entry;
+            while(it.hasNext()){
+                entry = (Map.Entry<PlaneAttachment, Integer>) it.next();
+                if (!entry.getKey().isTracking()) {
+                    continue;
+                }
+                // Get the current combined pose of an Anchor and Plane in world space. The Anchor
+                // and Plane poses are updated during calls to session.update() as ARCore refines
+                // its estimate of the world.
+                entry.getKey().getPose().toMatrix(mAnchorMatrix, 0);
+
+                // Update and draw the model and its shadow.
+                mVirtualObjects[entry.getValue()].updateModelMatrix(mAnchorMatrix, scaleFactor);
+                //mVirtualObjectShadow.updateModelMatrix(mAnchorMatrix, scaleFactor);
+                mVirtualObjects[entry.getValue()].draw(viewmtx, projmtx, lightIntensity);
+                //mVirtualObjectShadow.draw(viewmtx, projmtx, lightIntensity);
+            }
+            /*for (PlaneAttachment planeAttachment : mTouches) {
                 if (!planeAttachment.isTracking()) {
                     continue;
                 }
@@ -302,12 +374,21 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
                 planeAttachment.getPose().toMatrix(mAnchorMatrix, 0);
 
                 // Update and draw the model and its shadow.
-                mVirtualObject.updateModelMatrix(mAnchorMatrix, scaleFactor);
-                mVirtualObjectShadow.updateModelMatrix(mAnchorMatrix, scaleFactor);
-                mVirtualObject.draw(viewmtx, projmtx, lightIntensity);
-                mVirtualObjectShadow.draw(viewmtx, projmtx, lightIntensity);
-            }
+                mVirtualObjects[whichObj].updateModelMatrix(mAnchorMatrix, scaleFactor);
+                //mVirtualObjectShadow.updateModelMatrix(mAnchorMatrix, scaleFactor);
+                mVirtualObjects[whichObj].draw(viewmtx, projmtx, lightIntensity);
+                //mVirtualObjectShadow.draw(viewmtx, projmtx, lightIntensity);
+            }*/
 
+            if(saveFrame) {
+                saveFrame = true;
+                //new SaveImgTask().execute(gl);
+                if(saveImage(takeScreenshot(gl))){
+                    Toast.makeText(HelloArActivity.this, HelloArActivity.this.getString(R.string.photo_success), Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(HelloArActivity.this, HelloArActivity.this.getString(R.string.photo_error), Toast.LENGTH_LONG).show();
+                }
+            }
         } catch (Throwable t) {
             // Avoid crashing the application due to unhandled exceptions.
             Log.e(TAG, "Exception on the OpenGL thread", t);
@@ -335,5 +416,120 @@ public class HelloArActivity extends AppCompatActivity implements GLSurfaceView.
                 mLoadingMessageSnackbar = null;
             }
         });
+    }
+
+
+    void showDialog() {
+        DialogFragment newFragment = ImagesDialog.newInstance();
+        newFragment.show(getFragmentManager(), "dialog");
+    }
+
+
+    public void selectedObject(final int which) {
+        try {
+            this.whichObj = which;
+            objName = getResources().getStringArray(R.array.objects_array)[which];
+            switchBtn.setText(objName);
+        } catch (Exception e){
+            Log.e(TAG, "WTF. Received a wrong whinch index", e);
+        }
+    }
+
+    public Bitmap takeScreenshot(GL10 mGL) {
+        final int mWidth = mSurfaceView.getWidth();
+        final int mHeight = mSurfaceView.getHeight();
+        IntBuffer ib = IntBuffer.allocate(mWidth * mHeight);
+        IntBuffer ibt = IntBuffer.allocate(mWidth * mHeight);
+        mGL.glReadPixels(0, 0, mWidth, mHeight, GL10.GL_RGBA, GL10.GL_UNSIGNED_BYTE, ib);
+
+        // Convert upside down mirror-reversed image to right-side up normal image.
+        for (int i = 0; i < mHeight; i++) {
+            for (int j = 0; j < mWidth; j++) {
+                ibt.put((mHeight - i - 1) * mWidth + j, ib.get(i * mWidth + j));
+            }
+        }
+
+        Bitmap mBitmap = Bitmap.createBitmap(mWidth, mHeight, Bitmap.Config.ARGB_8888);
+        mBitmap.copyPixelsFromBuffer(ibt);
+        return mBitmap;
+    }
+
+    protected boolean saveImage(Bitmap bmScreen2) {
+        File saved_image_file = new File(
+          Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+            + "/captured_Bitmap.png");
+        if (saved_image_file.exists())
+            saved_image_file.delete();
+        try {
+            FileOutputStream out = new FileOutputStream(saved_image_file);
+            bmScreen2.compress(Bitmap.CompressFormat.PNG, 100, out);
+            out.flush();
+            out.close();
+            MediaStore.Images.Media.insertImage(getContentResolver(), bmScreen2, "Screenshot AR" , "Screenshot");
+            //addPicToGallery(saved_image_file.getPath());
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Exception on the saving img", e);
+            return false;
+        }
+    }
+
+    class SaveImgTask extends AsyncTask<GL10, Void, Boolean> {
+
+        @Override
+        protected Boolean doInBackground(final GL10... params) {
+            return saveImage(takeScreenshot(params[0]));
+        }
+
+        @Override
+        protected void onPostExecute(Boolean result) {
+            if(result){
+                Toast.makeText(HelloArActivity.this, HelloArActivity.this.getString(R.string.photo_success), Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(HelloArActivity.this, HelloArActivity.this.getString(R.string.photo_error), Toast.LENGTH_LONG).show();
+            }
+        }
+
+        public Bitmap takeScreenshot(GL10 mGL) {
+            final int mWidth = mSurfaceView.getWidth();
+            final int mHeight = mSurfaceView.getHeight();
+            IntBuffer ib = IntBuffer.allocate(mWidth * mHeight);
+            IntBuffer ibt = IntBuffer.allocate(mWidth * mHeight);
+            mGL.glReadPixels(0, 0, mWidth, mHeight, GL10.GL_RGBA, GL10.GL_UNSIGNED_BYTE, ib);
+
+            // Convert upside down mirror-reversed image to right-side up normal image.
+            for (int i = 0; i < mHeight; i++) {
+                for (int j = 0; j < mWidth; j++) {
+                    ibt.put((mHeight - i - 1) * mWidth + j, ib.get(i * mWidth + j));
+                }
+            }
+
+            Bitmap mBitmap = Bitmap.createBitmap(mWidth, mHeight, Bitmap.Config.ARGB_8888);
+            mBitmap.copyPixelsFromBuffer(ibt);
+            return mBitmap;
+        }
+
+        protected boolean saveImage(Bitmap bmScreen2) {
+            File saved_image_file = new File(
+              Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                + "/captured_Bitmap.png");
+            if (saved_image_file.exists())
+                saved_image_file.delete();
+            try {
+                FileOutputStream out = new FileOutputStream(saved_image_file);
+                bmScreen2.compress(Bitmap.CompressFormat.PNG, 100, out);
+                out.flush();
+                out.close();
+                MediaStore.Images.Media.insertImage(getContentResolver(), bmScreen2, "Screenshot AR" , "Screenshot");
+                //addPicToGallery(saved_image_file.getPath());
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Exception on the saving img", e);
+                return false;
+            }
+        }
+
+
+
     }
 }
